@@ -15,14 +15,14 @@ load_dotenv(_env_path)
 
 
 # --- Scheduler ---
-SCHEDULER_INTERVAL_MINUTES: int = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "60"))
+SCHEDULER_INTERVAL_MINUTES: int = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "5"))
 
 # --- Storage ---
 DB_PATH: str = os.getenv("DB_PATH", "stock_news.db")
 
 # --- News Search ---
 MAX_NEWS_PER_STOCK: int = int(os.getenv("MAX_NEWS_PER_STOCK", "5"))
-NEWS_LANG: str = os.getenv("NEWS_LANG", "en")
+NEWS_LANG: str = os.getenv("NEWS_LANG", "zh-TW")
 
 # --- Logging ---
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

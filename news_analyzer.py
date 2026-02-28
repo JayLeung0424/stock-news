@@ -188,32 +188,32 @@ def analyze_article(article) -> AnalyzedArticle:
 def _generate_impact_summary(
     code: str, name: str, sentiment: str, score: int, importance: int
 ) -> str:
-    """Generate a brief human-readable impact summary."""
+    """Generate a brief human-readable impact summary in Chinese."""
     strength = abs(score)
 
     if sentiment == "bullish":
         if strength >= 8:
-            direction = "Strong upside potential"
+            direction = "股價有強烈上漲潛力"
         elif strength >= 5:
-            direction = "Likely positive for stock price"
+            direction = "可能對股價產生正面影響"
         else:
-            direction = "Slightly positive signal"
+            direction = "輕微正面信號"
     elif sentiment == "bearish":
         if strength >= 8:
-            direction = "Significant downside risk"
+            direction = "股價有顯著下跌風險"
         elif strength >= 5:
-            direction = "Likely negative for stock price"
+            direction = "可能對股價產生負面影響"
         else:
-            direction = "Slightly negative signal"
+            direction = "輕微負面信號"
     else:
-        direction = "Neutral / mixed signal"
+        direction = "中性 / 方向不明"
 
     if importance >= 70:
-        urgency = "High impact"
+        urgency = "高度影響"
     elif importance >= 40:
-        urgency = "Medium impact"
+        urgency = "中度影響"
     else:
-        urgency = "Low impact"
+        urgency = "低度影響"
 
     return f"{urgency} — {direction}"
 

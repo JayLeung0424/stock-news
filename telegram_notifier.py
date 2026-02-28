@@ -81,28 +81,28 @@ def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int =
         Number of messages successfully sent.
     """
     if not articles:
-        _send_message("📭 <b>S&amp;P 500 News Update</b>\n\nNo important news found this cycle.")
+        _send_message("📭 <b>S&amp;P 500 新聞速報</b>\n\n本次未找到重要新聞。")
         return 1
 
     # Sentiment emoji mapping
     sentiment_emoji = {
-        "bullish": "🟢 Bullish",
-        "bearish": "🔴 Bearish",
-        "neutral": "⚪ Neutral",
+        "bullish": "🟢 看漲",
+        "bearish": "🔴 看跌",
+        "neutral": "⚪ 中性",
     }
 
     # Build message
     messages: List[str] = []
-    header = f"📰 <b>S&amp;P 500 — Top {len(articles)} Important News</b>\n"
-    header += f"🔍 Scanned {total_found} articles total"
+    header = f"📰 <b>S&amp;P 500 — 最重要 {len(articles)} 則新聞</b>\n"
+    header += f"🔍 共掃描 {total_found} 則新聞"
     if new_count > 0:
-        header += f" ({new_count} new)"
+        header += f"（{new_count} 則新增）"
     header += "\n"
 
     current_msg = header
 
     for i, a in enumerate(articles, 1):
-        sentiment = sentiment_emoji.get(a.sentiment, "⚪ Neutral")
+        sentiment = sentiment_emoji.get(a.sentiment, "⚪ 中性")
         title = _escape_html(a.title)
         source = f" — {_escape_html(a.source)}" if a.source else ""
         stock_label = f"{a.stock_code} ({_escape_html(a.stock_name)})"
@@ -111,7 +111,7 @@ def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int =
 
         block = f"\n<b>{'─' * 25}</b>\n"
         block += f"<b>#{i}</b>  💹 <b>{stock_label}</b>\n"
-        block += f"📊 Importance: <b>{a.importance_score}/100</b>  |  {sentiment}\n"
+        block += f"📊 重要性: <b>{a.importance_score}/100</b>  |  {sentiment}\n"
         block += f'📰 <a href="{a.link}">{title}</a>{source}\n'
         if summary_text:
             block += f"📝 {summary_text}\n"
@@ -119,7 +119,7 @@ def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int =
 
         if len(current_msg) + len(block) > 3800:
             messages.append(current_msg)
-            current_msg = f"📰 <b>S&amp;P 500 Top News (cont.)</b>\n"
+            current_msg = f"📰 <b>S&amp;P 500 重要新聞（續）</b>\n"
 
         current_msg += block
 
@@ -139,7 +139,7 @@ def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int =
 
 def send_error_to_telegram(error_msg: str) -> bool:
     """Send an error notification to Telegram."""
-    text = f"⚠️ <b>Stock News Error</b>\n\n{_escape_html(error_msg)}"
+    text = f"⚠️ <b>股票新聞錯誤</b>\n\n{_escape_html(error_msg)}"
     return _send_message(text)
 
 
