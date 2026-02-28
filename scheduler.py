@@ -5,7 +5,8 @@ Orchestrates the full pipeline:
   1. Load S&P 500 stock list
   2. Search news for each stock
   3. Store results in SQLite
-  4. Repeat every hour
+  4. Send news to Telegram
+  5. Repeat every hour
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import config
 import storage
 from news_searcher import search_news_batch
 from stock_fetcher import get_sp500_stocks
+from telegram_notifier import send_news_to_telegram, send_error_to_telegram
 
 
 def news_fetch_job():
@@ -58,9 +60,17 @@ def news_fetch_job():
         logger.info(f"Found {len(articles)} news articles total.")
 
         # Step 3: Store results
-        logger.info("Step 3/3: Saving to database ...")
+        logger.info("Step 3/4: Saving to database ...")
         new_count = storage.save_articles(articles)
         total_in_db = storage.get_article_count()
+
+        # Step 4: Send to Telegram
+        logger.info("Step 4/4: Sending news to Telegram ...")
+        try:
+            tg_sent = send_news_to_telegram(articles, new_count=new_count)
+            logger.info(f"Telegram messages sent: {tg_sent}")
+        except Exception as tg_err:
+            logger.error(f"Telegram notification failed: {tg_err}")
 
         storage.log_fetch_end(log_id, len(stocks), len(articles), status="success")
 
@@ -74,6 +84,10 @@ def news_fetch_job():
     except Exception as e:
         logger.exception(f"[JOB ERROR] {e}")
         storage.log_fetch_end(log_id, 0, 0, status=f"error: {e}")
+        try:
+            send_error_to_telegram(str(e))
+        except Exception:
+            pass  # Don't fail the job if TG notification fails
 
 
 def start_scheduler():

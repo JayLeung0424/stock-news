@@ -26,3 +26,7 @@ NEWS_LANG: str = os.getenv("NEWS_LANG", "en")
 
 # --- Logging ---
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+# --- Telegram Bot ---
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "8758046809:AAGhCwitXf7q5QN291zZe3nLEZ1tDyHRw5U")
+TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "1055293440")
