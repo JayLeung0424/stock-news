@@ -62,19 +62,18 @@ def _escape_html(text: str) -> str:
     )
 
 
-def send_news_to_telegram(articles: list, new_count: int = 0) -> int:
+def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int = 0) -> int:
     """
-    Format and send news articles to Telegram.
-
-    Groups articles by stock and sends in batches to avoid
-    Telegram's 4096-character message limit.
+    Format and send analyzed top news articles to Telegram.
 
     Parameters
     ----------
-    articles : list[NewsArticle]
-        List of news articles to send.
+    articles : list[AnalyzedArticle]
+        Top analyzed news articles (already ranked by importance).
+    total_found : int
+        Total articles found before filtering.
     new_count : int
-        Number of newly inserted articles (for the summary header).
+        Number of newly inserted articles.
 
     Returns
     -------
@@ -82,39 +81,47 @@ def send_news_to_telegram(articles: list, new_count: int = 0) -> int:
         Number of messages successfully sent.
     """
     if not articles:
-        _send_message("📭 <b>Stock News Update</b>\n\nNo news articles found this cycle.")
+        _send_message("📭 <b>S&amp;P 500 News Update</b>\n\nNo important news found this cycle.")
         return 1
 
-    # Group articles by stock
-    by_stock: dict[str, list] = {}
-    for a in articles:
-        key = f"{a.stock_code} ({a.stock_name})"
-        by_stock.setdefault(key, []).append(a)
+    # Sentiment emoji mapping
+    sentiment_emoji = {
+        "bullish": "🟢 Bullish",
+        "bearish": "🔴 Bearish",
+        "neutral": "⚪ Neutral",
+    }
 
-    # Build messages in chunks (respect 4096 char limit)
+    # Build message
     messages: List[str] = []
-    current_msg = f"📰 <b>S&amp;P 500 News Update</b>\n"
-    current_msg += f"🕐 Found <b>{len(articles)}</b> articles for <b>{len(by_stock)}</b> stocks"
+    header = f"📰 <b>S&amp;P 500 — Top {len(articles)} Important News</b>\n"
+    header += f"🔍 Scanned {total_found} articles total"
     if new_count > 0:
-        current_msg += f" (<b>{new_count}</b> new)"
-    current_msg += "\n"
+        header += f" ({new_count} new)"
+    header += "\n"
 
-    for stock_label, stock_articles in by_stock.items():
-        stock_block = f"\n<b>{'─' * 20}</b>\n"
-        stock_block += f"💹 <b>{_escape_html(stock_label)}</b>\n"
+    current_msg = header
 
-        for a in stock_articles:
-            title = _escape_html(a.title)
-            source = f" — {_escape_html(a.source)}" if a.source else ""
-            line = f'  • <a href="{a.link}">{title}</a>{source}\n'
-            stock_block += line
+    for i, a in enumerate(articles, 1):
+        sentiment = sentiment_emoji.get(a.sentiment, "⚪ Neutral")
+        title = _escape_html(a.title)
+        source = f" — {_escape_html(a.source)}" if a.source else ""
+        stock_label = f"{a.stock_code} ({_escape_html(a.stock_name)})"
+        summary_text = _escape_html(a.summary[:150]) + "..." if len(a.summary) > 150 else _escape_html(a.summary)
+        impact = _escape_html(a.impact_summary)
 
-        # Check if adding this block exceeds limit
-        if len(current_msg) + len(stock_block) > 3800:
+        block = f"\n<b>{'─' * 25}</b>\n"
+        block += f"<b>#{i}</b>  💹 <b>{stock_label}</b>\n"
+        block += f"📊 Importance: <b>{a.importance_score}/100</b>  |  {sentiment}\n"
+        block += f'📰 <a href="{a.link}">{title}</a>{source}\n'
+        if summary_text:
+            block += f"📝 {summary_text}\n"
+        block += f"💡 {impact}\n"
+
+        if len(current_msg) + len(block) > 3800:
             messages.append(current_msg)
-            current_msg = f"📰 <b>S&amp;P 500 News (cont.)</b>\n"
+            current_msg = f"📰 <b>S&amp;P 500 Top News (cont.)</b>\n"
 
-        current_msg += stock_block
+        current_msg += block
 
     if current_msg.strip():
         messages.append(current_msg)

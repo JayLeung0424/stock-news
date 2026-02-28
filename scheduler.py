@@ -4,9 +4,10 @@ Scheduler - APScheduler-based hourly news fetching.
 Orchestrates the full pipeline:
   1. Load S&P 500 stock list
   2. Search news for each stock
-  3. Store results in SQLite
-  4. Send news to Telegram
-  5. Repeat every hour
+  3. Analyze & rank by importance (top 10)
+  4. Store results in SQLite
+  5. Send top news to Telegram
+  6. Repeat every hour
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from loguru import logger
 import config
 import storage
 from news_searcher import search_news_batch
+from news_analyzer import analyze_and_rank
 from stock_fetcher import get_sp500_stocks
 from telegram_notifier import send_news_to_telegram, send_error_to_telegram
 
@@ -59,15 +61,20 @@ def news_fetch_job():
 
         logger.info(f"Found {len(articles)} news articles total.")
 
-        # Step 3: Store results
-        logger.info("Step 3/4: Saving to database ...")
+        # Step 3: Analyze & rank articles
+        logger.info("Step 3/5: Analyzing and ranking articles ...")
+        top_articles = analyze_and_rank(articles, top_n=10)
+        logger.info(f"Selected top {len(top_articles)} important articles.")
+
+        # Step 4: Store results
+        logger.info("Step 4/5: Saving to database ...")
         new_count = storage.save_articles(articles)
         total_in_db = storage.get_article_count()
 
-        # Step 4: Send to Telegram
-        logger.info("Step 4/4: Sending news to Telegram ...")
+        # Step 5: Send top news to Telegram
+        logger.info("Step 5/5: Sending top news to Telegram ...")
         try:
-            tg_sent = send_news_to_telegram(articles, new_count=new_count)
+            tg_sent = send_news_to_telegram(top_articles, total_found=len(articles), new_count=new_count)
             logger.info(f"Telegram messages sent: {tg_sent}")
         except Exception as tg_err:
             logger.error(f"Telegram notification failed: {tg_err}")
