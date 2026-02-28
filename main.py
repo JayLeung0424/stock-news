@@ -4,7 +4,6 @@ Stock News Scheduler - Main Entry Point
 Usage:
     python main.py              # Start the scheduler (runs every hour)
     python main.py --once       # Run once and exit
-    python main.py --query HK   # Run once for a specific market only
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ def run_scheduler():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Stock News Scheduler - Fetch news for Futu hot stocks",
+        description="Stock News Scheduler - Fetch news for S&P 500 stocks",
     )
     parser.add_argument(
         "--once",
@@ -70,12 +69,6 @@ def main():
         help=f"Override scheduler interval in minutes (default: {config.SCHEDULER_INTERVAL_MINUTES}).",
     )
     parser.add_argument(
-        "--count",
-        type=int,
-        default=None,
-        help=f"Override hot stock count (default: {config.HOT_STOCK_COUNT}).",
-    )
-    parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -87,17 +80,14 @@ def main():
     # Apply overrides
     if args.interval:
         config.SCHEDULER_INTERVAL_MINUTES = args.interval
-    if args.count:
-        config.HOT_STOCK_COUNT = args.count
     if args.db:
         config.DB_PATH = args.db
 
     setup_logging()
 
     logger.info("Stock News Scheduler starting ...")
-    logger.info(f"  Futu host:    {config.FUTU_HOST}:{config.FUTU_PORT}")
+    logger.info("  Stock universe: S&P 500")
     logger.info(f"  Interval:     {config.SCHEDULER_INTERVAL_MINUTES} min")
-    logger.info(f"  Hot stocks:   {config.HOT_STOCK_COUNT}")
     logger.info(f"  News/stock:   {config.MAX_NEWS_PER_STOCK}")
     logger.info(f"  Language:     {config.NEWS_LANG}")
     logger.info(f"  Database:     {config.DB_PATH}")

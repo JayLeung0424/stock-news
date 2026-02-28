@@ -2,7 +2,7 @@
 Scheduler - APScheduler-based hourly news fetching.
 
 Orchestrates the full pipeline:
-  1. Fetch top 200 hot stocks from Futu
+  1. Load S&P 500 stock list
   2. Search news for each stock
   3. Store results in SQLite
   4. Repeat every hour
@@ -21,8 +21,7 @@ from loguru import logger
 import config
 import storage
 from news_searcher import search_news_batch
-from stock_fetcher import fetch_all_market_hot_stocks, fetch_hot_stocks
-from futu import Market
+from stock_fetcher import get_sp500_stocks
 
 
 def news_fetch_job():
@@ -37,9 +36,9 @@ def news_fetch_job():
     log_id = storage.log_fetch_start()
 
     try:
-        # Step 1: Fetch top 200 hot stocks from Futu
-        logger.info("Step 1/3: Fetching hot stocks from Futu ...")
-        stocks = fetch_all_market_hot_stocks()
+        # Step 1: Load S&P 500 stocks
+        logger.info("Step 1/3: Loading S&P 500 stock list ...")
+        stocks = get_sp500_stocks()
 
         if not stocks:
             logger.warning("No stocks fetched. Skipping news search.")
@@ -87,7 +86,7 @@ def start_scheduler():
     logger.info("=" * 60)
     logger.info("  Stock News Scheduler")
     logger.info(f"  Interval: every {interval} minutes")
-    logger.info(f"  Hot stocks count: {config.HOT_STOCK_COUNT}")
+    logger.info("  Stock universe: S&P 500")
     logger.info(f"  Max news per stock: {config.MAX_NEWS_PER_STOCK}")
     logger.info(f"  News language: {config.NEWS_LANG}")
     logger.info(f"  Database: {config.DB_PATH}")

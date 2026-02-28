@@ -90,7 +90,7 @@ def search_news_for_stock(
     # Build search query: combine name + code for better results
     # Strip market prefix from code for cleaner search
     clean_code = stock_code.split(".")[-1] if "." in stock_code else stock_code
-    query = f"{stock_name} {clean_code} 股票"
+    query = f"{stock_name} {clean_code} stock"
 
     url = _build_google_news_url(query)
     logger.debug(f"Fetching news for {stock_code} ({stock_name}): {url}")
