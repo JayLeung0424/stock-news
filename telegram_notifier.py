@@ -106,15 +106,16 @@ def send_news_to_telegram(articles: list, total_found: int = 0, new_count: int =
         title = _escape_html(a.title)
         source = f" — {_escape_html(a.source)}" if a.source else ""
         stock_label = f"{a.stock_code} ({_escape_html(a.stock_name)})"
-        summary_text = _escape_html(a.summary[:150]) + "..." if len(a.summary) > 150 else _escape_html(a.summary)
+        # Use LLM-generated Chinese summary
+        news_zh = _escape_html(getattr(a, 'news_summary_zh', '') or a.summary[:150])
         impact = _escape_html(a.impact_summary)
 
         block = f"\n<b>{'─' * 25}</b>\n"
         block += f"<b>#{i}</b>  💹 <b>{stock_label}</b>\n"
         block += f"📊 重要性: <b>{a.importance_score}/100</b>  |  {sentiment}\n"
         block += f'📰 <a href="{a.link}">{title}</a>{source}\n'
-        if summary_text:
-            block += f"📝 {summary_text}\n"
+        if news_zh:
+            block += f"📝 {news_zh}\n"
         block += f"💡 {impact}\n"
 
         if len(current_msg) + len(block) > 3800:

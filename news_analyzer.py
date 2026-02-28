@@ -1,236 +1,173 @@
 """
-News Analyzer - Score and rank news articles by importance.
+News Analyzer - Use GitHub Models (GPT-4o-mini) to analyze and rank news.
 
-Uses keyword-based heuristics to estimate:
-  1. Importance score (how significant the news is)
-  2. Sentiment / price impact (bullish, bearish, or neutral)
+Sends collected news articles to GPT-4o-mini via the GitHub Models API
+to get professional-grade analysis including:
+  1. Importance score (0-100)
+  2. Sentiment (bullish / bearish / neutral)
+  3. Chinese summary of the news
+  4. Chinese impact analysis on stock price
 """
 
 from __future__ import annotations
 
-import re
+import json
+import time
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional
 
+from openai import OpenAI
 from loguru import logger
 
+import config
+
 
 # ---------------------------------------------------------------------------
-# Keyword dictionaries with weights
+# GitHub Models client
 # ---------------------------------------------------------------------------
 
-# High-importance keywords (major market-moving events)
-_HIGH_IMPORTANCE = {
-    # Earnings & financials
-    "earnings": 8, "revenue": 7, "profit": 7, "loss": 7, "quarterly": 6,
-    "annual report": 7, "guidance": 7, "forecast": 6, "outlook": 6,
-    "beat expectations": 9, "miss expectations": 9, "beat estimates": 9,
-    "missed estimates": 9, "eps": 6, "income": 5,
-    # Major corporate events
-    "merger": 9, "acquisition": 9, "acquire": 9, "buyout": 9, "takeover": 9,
-    "ipo": 8, "spinoff": 8, "spin-off": 8, "bankruptcy": 10, "bankrupt": 10,
-    "restructuring": 7, "layoff": 7, "layoffs": 7, "job cuts": 7,
-    "dividend": 6, "stock split": 8, "buyback": 6, "share repurchase": 6,
-    # Regulatory & legal
-    "sec": 6, "fda approval": 9, "fda": 7, "lawsuit": 7, "settlement": 7,
-    "investigation": 7, "fraud": 8, "regulatory": 6, "antitrust": 7,
-    "sanctions": 7, "ban": 6, "recall": 7,
-    # Leadership
-    "ceo": 7, "cfo": 6, "resign": 7, "fired": 7, "appointed": 6,
-    "steps down": 7, "new leadership": 6,
-    # Market impact
-    "crash": 9, "surge": 8, "plunge": 8, "soar": 8, "rally": 7,
-    "all-time high": 8, "record high": 8, "52-week low": 7, "52-week high": 7,
-    "halt": 8, "halted": 8, "delisted": 9, "downgrade": 7, "upgrade": 7,
-    # Macro
-    "fed": 6, "interest rate": 7, "inflation": 6, "tariff": 7, "trade war": 7,
-    "recession": 8, "stimulus": 7,
-}
+_GITHUB_MODELS_URL = "https://models.inference.ai.azure.com"
 
-# Medium-importance keywords
-_MEDIUM_IMPORTANCE = {
-    "analyst": 4, "rating": 4, "target price": 5, "price target": 5,
-    "partnership": 5, "contract": 5, "deal": 5, "agreement": 4,
-    "launch": 4, "product": 3, "innovation": 3, "patent": 4,
-    "expansion": 4, "market share": 5, "growth": 4, "decline": 4,
-    "warning": 5, "risk": 4, "concern": 3, "uncertainty": 3,
-    "insider": 5, "insider trading": 7, "insider buying": 6, "insider selling": 6,
-    "supply chain": 4, "shortage": 5, "disruption": 5,
-}
+def _get_client() -> OpenAI:
+    """Create an OpenAI client targeting GitHub Models."""
+    return OpenAI(
+        base_url=_GITHUB_MODELS_URL,
+        api_key=config.GITHUB_TOKEN,
+    )
 
-# Bullish (positive) keywords
-_BULLISH_KEYWORDS = {
-    "beat": 3, "beats": 3, "surpass": 3, "exceed": 3, "exceeded": 3,
-    "surge": 3, "soar": 3, "rally": 3, "gain": 2, "gains": 2,
-    "rise": 2, "rising": 2, "jump": 3, "jumps": 3, "up": 1,
-    "growth": 2, "strong": 2, "record": 2, "momentum": 2,
-    "upgrade": 3, "outperform": 3, "buy": 2, "bullish": 3,
-    "positive": 2, "optimistic": 2, "boost": 2, "recovery": 2,
-    "approval": 3, "approved": 3, "breakthrough": 3, "innovation": 2,
-    "expansion": 2, "profit": 2, "dividend": 2, "buyback": 2,
-    "all-time high": 3, "record high": 3, "beat expectations": 4,
-    "beat estimates": 4, "above consensus": 3,
-}
 
-# Bearish (negative) keywords
-_BEARISH_KEYWORDS = {
-    "miss": 3, "missed": 3, "below": 2, "decline": 2, "declining": 2,
-    "fall": 2, "falls": 2, "drop": 2, "drops": 2, "plunge": 3,
-    "crash": 3, "sink": 2, "loss": 2, "losses": 2, "down": 1,
-    "weak": 2, "weakness": 2, "slump": 3, "tumble": 3,
-    "downgrade": 3, "underperform": 3, "sell": 2, "bearish": 3,
-    "negative": 2, "concern": 2, "warning": 2, "risk": 1,
-    "lawsuit": 2, "fraud": 3, "investigation": 2, "recall": 2,
-    "bankruptcy": 4, "bankrupt": 4, "default": 3,
-    "layoff": 2, "layoffs": 2, "job cuts": 2, "restructuring": 1,
-    "miss expectations": 4, "missed estimates": 4, "below consensus": 3,
-    "halt": 2, "halted": 2, "delisted": 3, "ban": 2,
-    "recession": 2, "inflation": 1, "tariff": 1,
-}
-
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 @dataclass
 class AnalyzedArticle:
-    """A news article with importance score and sentiment analysis."""
+    """A news article with LLM-powered analysis."""
     stock_code: str
     stock_name: str
     title: str
     link: str
     source: str
     published: str
-    summary: str
+    summary: str                # Original summary
     importance_score: int       # 0-100
     sentiment: str              # "bullish", "bearish", "neutral"
-    sentiment_score: int        # positive = bullish, negative = bearish
-    impact_summary: str         # brief impact description
+    sentiment_score: int        # -10 to +10
+    impact_summary: str         # Chinese impact description
+    news_summary_zh: str        # Chinese news summary
 
 
-def _score_text(text: str, keyword_dict: dict) -> int:
-    """Score text against a keyword dictionary. Returns total score."""
-    text_lower = text.lower()
-    total = 0
-    for keyword, weight in keyword_dict.items():
-        # Use word boundary matching for short keywords
-        if len(keyword) <= 3:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, text_lower):
-                total += weight
-        else:
-            if keyword in text_lower:
-                total += weight
-    return total
+# ---------------------------------------------------------------------------
+# LLM analysis
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = """你是一位專業的股市新聞分析師。你的任務是分析新聞對股票價格的影響。
+
+對於每則新聞，你需要回傳以下 JSON 格式：
+{
+  "importance": <0-100整數，代表這則新聞對股價的重要程度>,
+  "sentiment": "<bullish|bearish|neutral>",
+  "sentiment_score": <-10到+10的整數，正數代表看漲，負數代表看跌>,
+  "summary_zh": "<用中文一句話概述新聞內容，最多50字>",
+  "impact_zh": "<用中文分析這則新聞對股價可能的影響，最多80字>"
+}
+
+評分標準：
+- importance 90-100：重大事件（財報大幅超預期/不及預期、併購、破產、CEO更換、FDA審批結果）
+- importance 70-89：較重要（分析師大幅調整評級、重要合作、重大訴訟、大規模裁員）
+- importance 50-69：中等重要（產品發布、一般業績更新、行業趨勢）
+- importance 30-49：一般（普通評論、市場概述）
+- importance 0-29：低重要性（花邊新聞、重複報導、與股價無關）
+
+sentiment_score 判斷：
+- +7 到 +10：強烈利多（財報大幅超預期、重大利好合約等）
+- +3 到 +6：利多（業績良好、分析師看好等）
+- -2 到 +2：中性（不確定方向、影響有限）
+- -6 到 -3：利空（業績下滑、負面消息等）
+- -10 到 -7：強烈利空（重大虧損、欺詐醜聞、破產等）
+
+請務必只回傳合法 JSON，不要加任何多餘文字。"""
 
 
-def analyze_article(article) -> AnalyzedArticle:
+def _analyze_batch_with_llm(articles_data: list[dict]) -> list[dict]:
     """
-    Analyze a single news article for importance and sentiment.
+    Send a batch of articles to GPT-4o-mini for analysis.
 
     Parameters
     ----------
-    article : NewsArticle
-        The article to analyze.
+    articles_data : list[dict]
+        List of {"index": int, "stock": str, "title": str, "summary": str}.
 
     Returns
     -------
-    AnalyzedArticle
-        The article with scores and analysis.
+    list[dict]
+        List of LLM analysis results.
     """
-    text = f"{article.title} {article.summary}"
+    if not articles_data:
+        return []
 
-    # --- Importance scoring ---
-    high_score = _score_text(text, _HIGH_IMPORTANCE)
-    med_score = _score_text(text, _MEDIUM_IMPORTANCE)
-    raw_importance = high_score * 2 + med_score
+    # Build the user prompt with all articles
+    lines = ["請分析以下新聞，回傳一個 JSON 陣列，每個元素對應一則新聞：\n"]
+    for item in articles_data:
+        lines.append(
+            f"[{item['index']}] 股票: {item['stock']}\n"
+            f"    標題: {item['title']}\n"
+            f"    摘要: {item['summary'][:200]}\n"
+        )
+    user_prompt = "\n".join(lines)
+    user_prompt += "\n請回傳 JSON 陣列，格式為 [{...}, {...}, ...]，按照上面的順序。"
 
-    # Normalize to 0-100
-    importance = min(100, raw_importance)
+    client = _get_client()
 
-    # Boost for known high-quality sources
-    quality_sources = {"reuters", "bloomberg", "cnbc", "wsj", "wall street journal",
-                       "financial times", "barron", "marketwatch", "yahoo finance",
-                       "seeking alpha", "the motley fool", "investor's business daily"}
-    if article.source and article.source.lower() in quality_sources:
-        importance = min(100, importance + 10)
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=4000,
+        )
+        raw = response.choices[0].message.content.strip()
 
-    # --- Sentiment scoring ---
-    bull_score = _score_text(text, _BULLISH_KEYWORDS)
-    bear_score = _score_text(text, _BEARISH_KEYWORDS)
-    sentiment_score = bull_score - bear_score
+        # Extract JSON from response (handle markdown code blocks)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            raw = raw.rsplit("```", 1)[0]
+        raw = raw.strip()
 
-    if sentiment_score >= 3:
-        sentiment = "bullish"
-    elif sentiment_score <= -3:
-        sentiment = "bearish"
-    else:
-        sentiment = "neutral"
+        results = json.loads(raw)
+        if isinstance(results, dict):
+            results = [results]
+        return results
 
-    # --- Generate impact summary ---
-    impact_summary = _generate_impact_summary(
-        article.stock_code, article.stock_name,
-        sentiment, sentiment_score, importance
-    )
-
-    return AnalyzedArticle(
-        stock_code=article.stock_code,
-        stock_name=article.stock_name,
-        title=article.title,
-        link=article.link,
-        source=article.source,
-        published=article.published or "",
-        summary=article.summary,
-        importance_score=importance,
-        sentiment=sentiment,
-        sentiment_score=sentiment_score,
-        impact_summary=impact_summary,
-    )
-
-
-def _generate_impact_summary(
-    code: str, name: str, sentiment: str, score: int, importance: int
-) -> str:
-    """Generate a brief human-readable impact summary in Chinese."""
-    strength = abs(score)
-
-    if sentiment == "bullish":
-        if strength >= 8:
-            direction = "股價有強烈上漲潛力"
-        elif strength >= 5:
-            direction = "可能對股價產生正面影響"
-        else:
-            direction = "輕微正面信號"
-    elif sentiment == "bearish":
-        if strength >= 8:
-            direction = "股價有顯著下跌風險"
-        elif strength >= 5:
-            direction = "可能對股價產生負面影響"
-        else:
-            direction = "輕微負面信號"
-    else:
-        direction = "中性 / 方向不明"
-
-    if importance >= 70:
-        urgency = "高度影響"
-    elif importance >= 40:
-        urgency = "中度影響"
-    else:
-        urgency = "低度影響"
-
-    return f"{urgency} — {direction}"
+    except json.JSONDecodeError as e:
+        logger.error(f"LLM returned invalid JSON: {e}\nRaw: {raw[:500]}")
+        return []
+    except Exception as e:
+        logger.error(f"LLM API call failed: {e}")
+        return []
 
 
 def analyze_and_rank(
     articles: list,
     top_n: int = 10,
+    batch_size: int = 15,
 ) -> List[AnalyzedArticle]:
     """
-    Analyze all articles and return the top N most important ones.
+    Analyze all articles using GPT-4o-mini and return the top N.
+
+    Sends articles in batches to the LLM, then ranks by importance.
 
     Parameters
     ----------
     articles : list[NewsArticle]
-        Raw news articles.
+        Raw news articles from the news searcher.
     top_n : int
         Number of top articles to return.
+    batch_size : int
+        Articles per LLM request (to stay within token limits).
 
     Returns
     -------
@@ -240,20 +177,89 @@ def analyze_and_rank(
     if not articles:
         return []
 
-    analyzed = []
-    for a in articles:
+    if not config.GITHUB_TOKEN:
+        logger.error("GITHUB_TOKEN not configured — cannot use LLM analysis")
+        return []
+
+    # Prepare article data for LLM
+    all_data = []
+    for i, a in enumerate(articles):
+        all_data.append({
+            "index": i,
+            "stock": f"{a.stock_code} ({a.stock_name})",
+            "title": a.title,
+            "summary": a.summary or a.title,
+        })
+
+    # Send in batches
+    all_results: list[Optional[dict]] = [None] * len(articles)
+    total_batches = (len(all_data) + batch_size - 1) // batch_size
+
+    for batch_num in range(total_batches):
+        start = batch_num * batch_size
+        end = min(start + batch_size, len(all_data))
+        batch = all_data[start:end]
+
+        logger.info(f"LLM 分析批次 {batch_num + 1}/{total_batches} ({len(batch)} 則新聞) ...")
+
+        results = _analyze_batch_with_llm(batch)
+
+        # Map results back
+        for j, result in enumerate(results):
+            idx = start + j
+            if idx < len(all_results):
+                all_results[idx] = result
+
+        # Rate limiting between batches
+        if batch_num < total_batches - 1:
+            time.sleep(2)
+
+    # Build AnalyzedArticle list
+    analyzed: List[AnalyzedArticle] = []
+    for i, article in enumerate(articles):
+        result = all_results[i]
+        if result is None:
+            # Fallback for failed analysis
+            result = {
+                "importance": 20,
+                "sentiment": "neutral",
+                "sentiment_score": 0,
+                "summary_zh": article.title,
+                "impact_zh": "分析失敗，無法判斷影響",
+            }
+
         try:
-            analyzed.append(analyze_article(a))
+            sentiment = result.get("sentiment", "neutral")
+            if sentiment not in ("bullish", "bearish", "neutral"):
+                sentiment = "neutral"
+
+            analyzed.append(AnalyzedArticle(
+                stock_code=article.stock_code,
+                stock_name=article.stock_name,
+                title=article.title,
+                link=article.link,
+                source=article.source or "",
+                published=article.published or "",
+                summary=article.summary or "",
+                importance_score=max(0, min(100, int(result.get("importance", 20)))),
+                sentiment=sentiment,
+                sentiment_score=max(-10, min(10, int(result.get("sentiment_score", 0)))),
+                impact_summary=str(result.get("impact_zh", "無法判斷")),
+                news_summary_zh=str(result.get("summary_zh", article.title)),
+            ))
         except Exception as e:
-            logger.warning(f"Failed to analyze article '{a.title[:50]}': {e}")
+            logger.warning(f"Failed to parse LLM result for '{article.title[:40]}': {e}")
 
     # Sort by importance descending, then by absolute sentiment score
     analyzed.sort(key=lambda x: (x.importance_score, abs(x.sentiment_score)), reverse=True)
 
     top = analyzed[:top_n]
-    logger.info(
-        f"Analyzed {len(analyzed)} articles, selected top {len(top)} "
-        f"(score range: {top[-1].importance_score}–{top[0].importance_score})"
-        if top else f"Analyzed {len(analyzed)} articles, no results"
-    )
+    if top:
+        logger.info(
+            f"LLM 分析完成：共 {len(analyzed)} 則，選出 Top {len(top)} "
+            f"（分數範圍：{top[-1].importance_score}–{top[0].importance_score}）"
+        )
+    else:
+        logger.info(f"LLM 分析完成：共 {len(analyzed)} 則，無結果")
+
     return top
