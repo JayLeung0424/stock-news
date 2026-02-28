@@ -509,5 +509,5 @@ SP500_STOCKS = [
     ("PAYC", "Paycom"),
     ("LW", "Lamb Weston"),
     ("NWS", "News Corp (Class B)"),
-    ("CRWV", "CoreWeave"),
+    ("CRWV", "CoreWeave")
 ]
